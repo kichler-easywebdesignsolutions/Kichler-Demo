@@ -1,0 +1,106 @@
+<project name="Retrieve and Deploy SFDC metadata" default="sfdcDetails" basedir="." xmlns:sf="antlib:com.salesforce">
+    <property file="${basedir}/environments/${environment}.properties"/>
+    <condition property="sf.username" value=""> <not> <isset property="sf.username"/> </not> </condition>
+    <condition property="sf.password" value=""> <not> <isset property="sf.password"/> </not> </condition>
+    <condition property="sf.sessionId" value=""> <not> <isset property="sf.sessionId"/> </not> </condition>
+    <taskdef resource="net/sf/antcontrib/antlib.xml" classpath="${basedir}/ant-contrib-1.0b3.jar"/>
+    <taskdef resource="com/salesforce/antlib.xml" uri="antlib:com.salesforce">
+        <classpath>
+            <pathelement location="${basedir}/ant-salesforce.jar" />
+        </classpath>
+    </taskdef>
+	<property name="passwordToken" value="${sf.password}${sf.token}"/>
+	<property name="srcDir" value="${basedir}/src" />
+	<property name="srcDirCopy" value="${basedir}/src-copy" />
+
+	<target name="sfdcDetails">
+    <echo>Base Dir: ${basedir}</echo>
+		<echo>Environment: ${environment}</echo>
+		<echo>Username: ${sf.username}</echo>
+		<echo>Server url: ${sf.serverurl}</echo>
+	</target>
+
+  <target name="fetchMetadata" depends="sfdcDetails,retrieveMetadata,copyMetadata">
+  </target>
+
+    <target name="retrieveMetadata">
+      <echo level="info">Retrieving the server's version of code ${sf.username} ${sf.serverurl}</echo>
+      <!-- Retrieve the contents into a temp src directory -->
+      <delete dir="${srcDir}"/>
+      <mkdir dir="${srcDirCopy}"/>
+      <sf:retrieve
+        retrieveTarget="${srcDirCopy}"
+        username="${sf.username}"
+        password="${passwordToken}"
+        serverurl="${sf.serverurl}"
+        unpackaged="package.xml"/>
+    </target>
+
+    <!-- Remove unwanted metadata specified on this target -->
+  	<target name="copyMetadata">
+  		<echo>Copying source to ${srcDir} to exclude unwanted files</echo>
+
+      <antcall target="replaceCustomLabels" />
+    </target>
+
+    <property name="test.email" value="ertm2@test.co.nz" />
+
+    <target name="replaceCustomLabels">
+      <if>
+        <available file="${basedir}/labels/CustomLabels.labels" />
+        <then>
+          <replaceregexp byline="false" 
+            match="(&lt;shortDescription&gt;Partner Community Domain&lt;/shortDescription&gt;\s*&lt;value&gt;)https://sandbox-mydomain.cs90.force.com/"
+            replace="\https://mydomain.force.com/">
+            <fileset dir="${basedir}/src/labels" erroronmissingdir="false">
+              <include name="CustomLabels.labels"/>
+            </fileset>			
+          </replaceregexp>       
+        </then>
+      </if>
+    </target>    
+
+	<!-- deploy the changes to target org -->
+	<target name="deployMetadata" depends="sfdcDetails,copyMetadata">
+      <echo level="info">Performing the deploy</echo>
+      <sf:deploy
+        username="${sf.username}"
+        password="${passwordToken}"
+        serverurl="${sf.serverurl}"
+        deployRoot="${srcDir}"
+        pollWaitMillis="${sf.pollWaitMillis}"
+        maxPoll="${sf.maxPoll}"  
+  			>
+			  </sf:deploy>
+    </target>
+	  <!-- Run test on the to target org -->
+    <target name="deployEmptyCheckOnly" depends="sfdcDetails,copyMetadata">
+      <echo level="info">Testing the deploy</echo>
+      <sf:deploy
+	      checkOnly="true"
+          logType="Debugonly"
+          username="${sf.username}"
+          password="${passwordToken}"
+          serverurl="${sf.serverurl}"
+          deployRoot="${srcDir}"
+          pollWaitMillis="${sf.pollWaitMillis}"
+          maxPoll="${sf.maxPoll}">
+        </sf:deploy>
+    </target>
+    <macrodef name="git">
+      <attribute name="dir" default="" />
+      <attribute name="branch" default="master" />
+      <sequential>
+        <exec executable="git" dir="@{dir}">
+          <arg value="pull" />
+          <arg value="origin" />
+          <arg value="@{branch}" />
+        </exec>
+      </sequential>
+    </macrodef>
+    <target name="checkoutFromGit">
+      <echo>Issuing git pull from directory: ${git.dir}</echo>
+      <echo>Pulling from branch: ${git.branch}</echo>
+      <git dir="${git.dir}" branch="${git.branch}" />
+    </target>
+</project>
